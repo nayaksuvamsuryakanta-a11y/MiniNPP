@@ -1,0 +1,6 @@
+﻿alice@example
+keep this line
+bob@test
+charlie@example
+plain text
+another line

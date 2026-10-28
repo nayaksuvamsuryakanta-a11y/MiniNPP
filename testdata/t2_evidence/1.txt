@@ -1,0 +1,11 @@
+#include <stdio.h>
+struct Demo { int value; };
+static int square(int value) { return value * value; }
+int main(void) {
+    struct Demo demo = { 7 };
+    for (int i = 0; i < 3; ++i) {
+        printf("%d\n", square(demo.value + i));
+    }
+    return 0;
+}
+// EDIT-456

@@ -1,0 +1,6 @@
+MININPP-SESSION 1
+tab|1|1|274|0|1|1|C:\Users\nayak\Desktop\Intership Projects\Notepad-S-inc\MiniNPP\testdata\sample.c
+tab|1|2|0|0|0|2|C:\Users\nayak\Desktop\Intership Projects\Notepad-S-inc\MiniNPP\testdata\sample.py
+tab|1|3|0|0|0|3|C:\Users\nayak\Desktop\Intership Projects\Notepad-S-inc\MiniNPP\testdata\minified.json
+tab|0|0|11|0|1|4|
+active=0

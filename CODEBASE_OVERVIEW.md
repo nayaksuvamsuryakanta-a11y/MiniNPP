@@ -140,3 +140,15 @@ Scintilla owns the text buffers for open documents. MiniNPP owns the `Doc` recor
 The first GCC command builds `MiniNPP.exe` from `mininpp.c` and `textutil.c`, includes both dependency header directories, and links the Scintilla and Lexilla import libraries through `-lscintilla` and `-llexilla`. It also links the Win32 libraries required for controls, dialogs, shell/path utilities, COM/OLE, user-interface, and graphics functionality: `comctl32`, `comdlg32`, `shlwapi`, `shell32`, `ole32`, `user32`, and `gdi32`.
 
 The second GCC command builds `plugins\jsonfmt.dll` as a shared library against the same Scintilla headers and the local project headers. At runtime, `MiniNPP.exe` loads `Scintilla.dll` and `Lexilla.dll` beside the executable, while plugins are discovered from the executable's `plugins` directory.
+
+## 8. Current Codebase Summary
+
+MiniNPP is organized as a native Win32 shell around Scintilla's editing engine. The application manages windows, menus, dialogs, tabs, files, sessions, backups, plugins, and editor commands, while Scintilla owns the live document buffers and editing behavior. Lexilla is loaded dynamically to provide language lexers for syntax highlighting and folding.
+
+The `Doc` structure is the central application-level representation of an open tab. It stores the file path, encoding, selected language, Scintilla document pointer, caret and scroll state, dirty state, backup state, and a unique document ID. Session records in `%APPDATA%\MiniNPP\session.txt` preserve tab metadata, while dirty documents are periodically written to `backup\*.txt` so unsaved work can be recovered after a restart.
+
+The portable `textutil` library keeps encoding conversion, line-ending handling, and line operations separate from the Windows UI. The current local test harness reports 28 checks with zero failures, although the recovered workspace contains a provenance discrepancy because an earlier expected version reportedly had 36 checks.
+
+The example JSON plugin demonstrates the DLL plugin ABI defined by `mininpp_plugin.h`. The build produces `MiniNPP.exe` and `plugins\jsonfmt.dll`, using the local Scintilla and Lexilla libraries plus standard Win32 libraries. Explorer-style deployment also requires the MinGW runtime DLLs `libgcc_s_seh-1.dll`, `libstdc++-6.dll`, and `libwinpthread-1.dll` beside the executable so Lexilla can load without an MSYS2 PATH.
+
+One remaining architectural risk is multi-instance session sharing: separate MiniNPP processes use the same `%APPDATA%\MiniNPP` session and backup directory. A second instance can restore and rewrite shared state, so a single-instance guard should be considered before a v1.0 release.

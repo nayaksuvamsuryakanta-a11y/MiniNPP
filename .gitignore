@@ -16,3 +16,6 @@ _recon/
 _recon/
 *.bak
 test_*.txt
+testdata/big.txt
+testdata/replace_copy/
+testdata/lexilla_probe/
