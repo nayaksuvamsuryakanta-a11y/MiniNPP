@@ -275,10 +275,12 @@ static char *ToUtf8(const unsigned char *src, size_t n, TuEncoding enc, size_t *
         return tu_utf16_to_utf8(src, n, enc == TU_ENC_UTF16BE, outLen);
     if (enc == TU_ENC_ANSI && n) {
         int wl = MultiByteToWideChar(CP_ACP, 0, (const char *)src, (int)n, NULL, 0), ul;
+        if (wl <= 0) return NULL;
         wchar_t *w = (wchar_t *)malloc(((size_t)wl + 1) * sizeof(wchar_t));
         if (!w) return NULL;
         MultiByteToWideChar(CP_ACP, 0, (const char *)src, (int)n, w, wl);
         ul = WideCharToMultiByte(CP_UTF8, 0, w, wl, NULL, 0, NULL, NULL);
+        if (ul <= 0) { free(w); return NULL; }
         out = (char *)malloc((size_t)ul + 1);
         if (out) {
             WideCharToMultiByte(CP_UTF8, 0, w, wl, out, ul, NULL, NULL);
@@ -584,7 +586,7 @@ static void UpdateTab(int i)
     TCITEMW ti;
     if (i < 0 || i >= g_nDocs) return;
     DocName(g_docs[i], t, PATH_CAP);
-    if (g_docs[i]->dirty) wcscat(t, L" *");
+    if (g_docs[i]->dirty) wcsncat(t, L" *", (sizeof(t) / sizeof(t[0])) - wcslen(t) - 1);
     memset(&ti, 0, sizeof ti);
     ti.mask = TCIF_TEXT;
     ti.pszText = t;
@@ -2105,7 +2107,7 @@ static void BuildMenu(HWND wnd)
 
 static void BuildAccelerators(void)
 {
-    static const ACCEL A[] = {
+    static ACCEL A[] = {
         { FVIRTKEY | FCONTROL, 'N', IDM_FILE_NEW }, { FVIRTKEY | FCONTROL, 'O', IDM_FILE_OPEN },
         { FVIRTKEY | FCONTROL, 'S', IDM_FILE_SAVE }, { FVIRTKEY | FCONTROL | FSHIFT, 'S', IDM_FILE_SAVEAS },
         { FVIRTKEY | FCONTROL, 'W', IDM_FILE_CLOSE },
@@ -2124,16 +2126,16 @@ static void BuildAccelerators(void)
         { FVIRTKEY | FCONTROL, VK_NUMPAD0, IDM_VIEW_ZOOM0 }, { FVIRTKEY | FCONTROL, '0', IDM_VIEW_ZOOM0 },
         { FVIRTKEY | FCONTROL, VK_TAB, IDM_VIEW_NEXTTAB }, { FVIRTKEY | FCONTROL | FSHIFT, VK_TAB, IDM_VIEW_PREVTAB }
     };
-    g_accel = CreateAcceleratorTableW((LPACCEL)A, (int)(sizeof A / sizeof A[0]));
+    g_accel = CreateAcceleratorTableW((LPACCEL)(void *)A, (int)(sizeof A / sizeof A[0]));
 }
 
 static void UpdateMenuChecks(void)
 {
     Doc *d = Cur();
     if (!d) return;
-    CheckMenuRadioItem(g_mEnc, IDM_ENC_BASE, IDM_ENC_BASE + 4, IDM_ENC_BASE + d->enc, MF_BYCOMMAND);
-    CheckMenuRadioItem(g_mEol, IDM_EOL_BASE, IDM_EOL_BASE + 2, IDM_EOL_BASE + (int)SS(SCI_GETEOLMODE, 0, 0), MF_BYCOMMAND);
-    CheckMenuRadioItem(g_mLang, IDM_LANG_BASE, IDM_LANG_BASE + LANG_COUNT - 1, IDM_LANG_BASE + d->lang, MF_BYCOMMAND);
+    CheckMenuRadioItem(g_mEnc, IDM_ENC_BASE, IDM_ENC_BASE + 4, IDM_ENC_BASE + (UINT)d->enc, MF_BYCOMMAND);
+    CheckMenuRadioItem(g_mEol, IDM_EOL_BASE, IDM_EOL_BASE + 2, IDM_EOL_BASE + (UINT)SS(SCI_GETEOLMODE, 0, 0), MF_BYCOMMAND);
+    CheckMenuRadioItem(g_mLang, IDM_LANG_BASE, IDM_LANG_BASE + LANG_COUNT - 1, IDM_LANG_BASE + (UINT)d->lang, MF_BYCOMMAND);
     CheckMenuItem(g_mView, IDM_VIEW_WRAP, MF_BYCOMMAND | (g_wrap ? MF_CHECKED : MF_UNCHECKED));
     CheckMenuItem(g_mView, IDM_VIEW_WS, MF_BYCOMMAND | (g_showWs ? MF_CHECKED : MF_UNCHECKED));
     CheckMenuItem(g_mView, IDM_VIEW_EOL, MF_BYCOMMAND | (g_showEol ? MF_CHECKED : MF_UNCHECKED));
@@ -2512,4 +2514,3 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmd, int show)
     }
     return (int)msg.wParam;
 }
-

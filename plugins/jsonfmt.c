@@ -21,8 +21,11 @@ typedef struct { char *p; size_t n, cap; } Buf;
 static void put(Buf *b, char c)
 {
     if (b->n + 2 > b->cap) {
+        char *new_p;
         b->cap = b->cap ? b->cap * 2 : 4096;
-        b->p = (char *)realloc(b->p, b->cap);
+        new_p = (char *)realloc(b->p, b->cap);
+        if (!new_p) { free(b->p); b->p = NULL; b->n = 0; b->cap = 0; return; }
+        b->p = new_p;
     }
     b->p[b->n++] = c;
     b->p[b->n] = 0;
