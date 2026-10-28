@@ -13,3 +13,6 @@ _recon/
 .vscode/
 *.log
 *.zip
+_recon/
+*.bak
+test_*.txt
