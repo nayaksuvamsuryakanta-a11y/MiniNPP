@@ -1,0 +1,15 @@
+# Dependencies (Scintilla & Lexilla)
+deps/
+
+# Build artifacts
+*.exe
+*.o
+*.a
+*.dll
+*.bak
+
+# VS Code / Recovery folders
+_recon/
+.vscode/
+*.log
+*.zip
