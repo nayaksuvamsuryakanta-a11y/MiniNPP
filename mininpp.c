@@ -117,6 +117,10 @@ static CreateLexerFn g_createLexer;
 static int g_wrap, g_showWs, g_showEol, g_resultsVisible, g_sessionDirty;
 static int g_nextUntitled = 1, g_nextUid = 1;
 
+/* Held open by the first instance for its entire lifetime so the mutex kernel
+ * object outlives this process; closing it would break the single-instance guard. */
+static HANDLE g_singleMutex = NULL;
+
 static Doc **g_docs;
 static int g_nDocs, g_capDocs, g_cur = -1;
 
@@ -197,12 +201,30 @@ static void StatusSet(int part, const wchar_t *text)
 
 static void InitPaths(void)
 {
-    wchar_t appdata[MAX_PATH] = L"", b[PATH_CAP], *sl;
+    wchar_t appdata[MAX_PATH] = L"", b[PATH_CAP], env[MAX_PATH] = L"", *sl;
+    DWORD n;
+
     GetModuleFileNameW(NULL, g_exeDir, PATH_CAP);
     sl = wcsrchr(g_exeDir, L'\\');
     if (sl) *sl = 0;
-    SHGetFolderPathW(NULL, CSIDL_APPDATA | CSIDL_FLAG_CREATE, NULL, 0, appdata);
-    SNW(g_dataDir, L"%ls\\MiniNPP", appdata);
+
+    /*
+     * Testability hook: MININPP_CONFIG_DIR overrides the config directory so
+     * automated tests can run without touching the user's real %APPDATA%.
+     *
+     * GetEnvironmentVariableW returns the number of characters copied, or the
+     * buffer size required (including the terminator) if the buffer is too
+     * small. If the value does not fit we fall back to the normal path rather
+     * than silently truncating it into a bogus directory.
+     */
+    n = GetEnvironmentVariableW(L"MININPP_CONFIG_DIR", env, MAX_PATH);
+    if (n && n < MAX_PATH) {
+        SNW(g_dataDir, L"%ls", env);
+    } else {
+        SHGetFolderPathW(NULL, CSIDL_APPDATA | CSIDL_FLAG_CREATE, NULL, 0, appdata);
+        SNW(g_dataDir, L"%ls\\MiniNPP", appdata);
+    }
+
     CreateDirectoryW(g_dataDir, NULL);
     SNW(b, L"%ls\\backup", g_dataDir);
     CreateDirectoryW(b, NULL);
@@ -2389,6 +2411,22 @@ static LRESULT CALLBACK MainProc(HWND h, UINT m, WPARAM w, LPARAM l)
         if (nh->hwndFrom == g_sci) { OnScintilla((const SCNotification *)l); return 0; }
         break;
     }
+    case WM_COPYDATA: {
+        const COPYDATASTRUCT *cds = (const COPYDATASTRUCT *)l;
+        if (cds && cds->dwData == 1 && cds->cbData > 0 && cds->lpData) {
+            const wchar_t *p = (const wchar_t *)cds->lpData;
+            const wchar_t *end = (const wchar_t *)((const char *)cds->lpData + cds->cbData);
+            /* lpData points at the other process's address space: copy every path
+             * out of it before the message returns, then discard the pointer. */
+            while (p < end && *p) {
+                OpenDocument(p);
+                p += wcslen(p) + 1;
+            }
+        }
+        if (IsIconic(h)) ShowWindow(h, SW_RESTORE);
+        SetForegroundWindow(h);
+        return 0;
+    }
     case WM_DROPFILES: {
         HDROP dr = (HDROP)w;
         UINT i, n = DragQueryFileW(dr, 0xFFFFFFFF, NULL, 0);
@@ -2413,6 +2451,7 @@ static LRESULT CALLBACK MainProc(HWND h, UINT m, WPARAM w, LPARAM l)
         DestroyWindow(h);
         return 0;
     case WM_DESTROY:
+        if (g_singleMutex) { CloseHandle(g_singleMutex); g_singleMutex = NULL; }
         PostQuitMessage(0);
         return 0;
     }
@@ -2431,6 +2470,72 @@ static int LoadScintilla(void)
     lx = LoadLibraryW(p);
     if (!lx) lx = LoadLibraryW(L"Lexilla.dll");
     if (lx) g_createLexer = (CreateLexerFn)(void *)GetProcAddress(lx, "CreateLexer");
+    return 1;
+}
+
+/*
+ * Returns 1 when this instance must exit (its files were forwarded to an
+ * already running instance), 0 when it should open its own window.
+ *
+ * The first instance keeps the mutex handle open in g_singleMutex for its
+ * entire lifetime: the kernel object only exists while at least one handle
+ * is open, so closing it here would make the guard vanish after the first
+ * instance starts.
+ */
+static int ForwardToExistingInstance(wchar_t **argv, int argc)
+{
+    HANDLE mutex;
+    HWND hPrev;
+    int i;
+
+    mutex = CreateMutexW(NULL, TRUE, L"Global\\MiniNPP_SingleInstance_Mutex");
+    if (!mutex) return 0;
+    if (GetLastError() != ERROR_ALREADY_EXISTS) {
+        g_singleMutex = mutex;                  /* we are the first instance */
+        return 0;
+    }
+
+    hPrev = FindWindowW(L"MiniNPPMain", NULL);
+    if (!hPrev) {
+        /* The mutex is held but the window is not yet visible: the first
+         * instance is still starting up, or it lives in another terminal
+         * session (FindWindow is session-local while "Global\" is not). */
+        CloseHandle(mutex);
+        return 0;
+    }
+
+    if (argc > 1) {
+        COPYDATASTRUCT cds;
+        size_t total = sizeof(wchar_t), len;   /* trailing NUL included in total */
+        wchar_t *buf, *p;
+
+        for (i = 1; i < argc; i++) {
+            len = (wcslen(argv[i]) + 1) * sizeof(wchar_t);
+            if (len > SIZE_MAX - total || total > 0xFFFFFFFF - len) { total = 0; break; }
+            total += len;
+        }
+
+        if (total) {
+            buf = (wchar_t *)malloc(total);
+            if (buf) {
+                p = buf;
+                for (i = 1; i < argc; i++) {
+                    wcscpy(p, argv[i]);
+                    p += wcslen(argv[i]) + 1;
+                }
+                *p = 0;
+                cds.dwData = 1;
+                cds.cbData = (DWORD)total;
+                cds.lpData = buf;
+                SendMessageW(hPrev, WM_COPYDATA, (WPARAM)0, (LPARAM)&cds);
+                free(buf);
+            }
+        }
+    }
+
+    if (IsIconic(hPrev)) ShowWindow(hPrev, SW_RESTORE);
+    SetForegroundWindow(hPrev);
+    CloseHandle(mutex);
     return 1;
 }
 
@@ -2463,8 +2568,8 @@ static void RegisterClasses(void)
 int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmd, int show)
 {
     INITCOMMONCONTROLSEX icc;
-    wchar_t **argv;
-    int argc, i;
+    wchar_t **argv = NULL;
+    int argc = 0, i;
     MSG msg;
     (void)hPrev; (void)cmd;
 
@@ -2481,6 +2586,17 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmd, int show)
     RegisterClasses();
     BuildAccelerators();
 
+    /*
+     * Single-instance guard, parsed before the window exists. A second instance
+     * forwards its files via WM_COPYDATA and exits; the first instance keeps the
+     * argv it parsed here and reuses it below.
+     */
+    argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (argv && ForwardToExistingInstance(argv, argc)) {
+        LocalFree(argv);
+        return 0;
+    }
+
     g_main = CreateWindowExW(WS_EX_ACCEPTFILES, L"MiniNPPMain", APP_NAME, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                              CW_USEDEFAULT, CW_USEDEFAULT, 1100, 720, NULL, NULL, hInst, NULL);
     if (!g_main) {
@@ -2492,8 +2608,7 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE hPrev, LPSTR cmd, int show)
         StatusSet(0, L"Lexilla.dll not found - running without syntax highlighting.");
 
     RestoreSession();
-    argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (argv) {
+    if (argv) {                      /* parsed above, guarded against a second instance */
         for (i = 1; i < argc; i++) OpenDocument(argv[i]);
         LocalFree(argv);
     }
