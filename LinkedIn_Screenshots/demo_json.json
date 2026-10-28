@@ -1,0 +1,1 @@
+﻿{"name":"MiniNPP","version":1.0,"features":["Syntax Highlighting","Macros","Session Restore"],"settings":{"theme":"dark","tabs":{"enabled":true,"max":12},"plugins":[{"name":"JSON Tools","pretty_print":true},{"name":"File Monitor","enabled":true}]},"metrics":{"startup_ms":42,"files_open":5,"stable":true}}

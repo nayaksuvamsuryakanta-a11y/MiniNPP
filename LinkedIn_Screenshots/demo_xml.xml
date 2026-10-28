@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<project name="MiniNPP" version="1.0">
+  <metadata owner="Suvam" status="ready" />
+  <features>
+    <feature id="highlighting" enabled="true">Syntax Highlighting</feature>
+    <feature id="folding" enabled="true">Code Folding</feature>
+    <feature id="plugins" enabled="true">
+      <plugin name="JSON Tools" action="pretty-print" />
+    </feature>
+  </features>
+  <description><![CDATA[MiniNPP is a lightweight Win32 editor for fast, focused text editing.]]></description>
+</project>
